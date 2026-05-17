@@ -1,0 +1,843 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="theme-color" content="#111827" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-title" content="Time Clock" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <title>Simple Time Clock</title>
+  <style>
+    :root {
+      --bg: #0f172a;
+      --panel: #111827;
+      --panel-2: #1f2937;
+      --card: #f8fafc;
+      --text: #e5e7eb;
+      --muted: #9ca3af;
+      --ink: #111827;
+      --accent: #38bdf8;
+      --good: #22c55e;
+      --warn: #f59e0b;
+      --bad: #ef4444;
+      --shadow: 0 20px 50px rgba(0,0,0,.25);
+      --radius: 22px;
+    }
+
+    * { box-sizing: border-box; }
+
+    html, body {
+      margin: 0;
+      min-height: 100%;
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: radial-gradient(circle at top, #1e293b, var(--bg));
+      color: var(--text);
+      -webkit-tap-highlight-color: transparent;
+    }
+
+    body {
+      display: flex;
+      justify-content: center;
+      padding: env(safe-area-inset-top) 14px env(safe-area-inset-bottom);
+    }
+
+    .app {
+      width: min(100%, 520px);
+      min-height: 100dvh;
+      padding: 18px 0 28px;
+    }
+
+    header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      margin-bottom: 18px;
+    }
+
+    .brand {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
+
+    .brand h1 {
+      margin: 0;
+      font-size: 1.35rem;
+      letter-spacing: -.03em;
+    }
+
+    .brand span {
+      color: var(--muted);
+      font-size: .9rem;
+    }
+
+    .menu-wrap { position: relative; }
+
+    .icon-btn {
+      border: 0;
+      border-radius: 16px;
+      background: rgba(255,255,255,.08);
+      color: var(--text);
+      width: 46px;
+      height: 46px;
+      font-size: 1.55rem;
+      cursor: pointer;
+      box-shadow: inset 0 0 0 1px rgba(255,255,255,.08);
+    }
+
+    .menu {
+      position: absolute;
+      right: 0;
+      top: 56px;
+      width: 220px;
+      background: #020617;
+      border: 1px solid rgba(255,255,255,.12);
+      border-radius: 18px;
+      padding: 8px;
+      box-shadow: var(--shadow);
+      z-index: 20;
+      display: none;
+    }
+
+    .menu.open { display: block; }
+
+    .menu button {
+      width: 100%;
+      border: 0;
+      background: transparent;
+      color: var(--text);
+      text-align: left;
+      padding: 13px 14px;
+      border-radius: 12px;
+      font-size: 1rem;
+      cursor: pointer;
+    }
+
+    .menu button:hover, .menu button:focus { background: rgba(255,255,255,.1); }
+
+    .screen { display: none; }
+    .screen.active { display: block; }
+
+    .clock-card {
+      background: linear-gradient(180deg, rgba(255,255,255,.11), rgba(255,255,255,.05));
+      border: 1px solid rgba(255,255,255,.12);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+      padding: 22px;
+      text-align: center;
+      margin-bottom: 18px;
+    }
+
+    .date {
+      color: var(--muted);
+      font-size: 1rem;
+      margin-bottom: 8px;
+    }
+
+    .time {
+      font-size: clamp(2.8rem, 16vw, 4.8rem);
+      font-weight: 800;
+      line-height: 1;
+      letter-spacing: -.07em;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .status {
+      margin-top: 18px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      padding: 9px 13px;
+      border-radius: 999px;
+      background: rgba(255,255,255,.08);
+      color: var(--text);
+      font-size: .95rem;
+    }
+
+    .dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 999px;
+      background: var(--muted);
+    }
+
+    .dot.in { background: var(--good); }
+    .dot.lunch { background: var(--warn); }
+    .dot.out { background: var(--bad); }
+
+    .actions {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+    }
+
+    .big-btn {
+      min-height: 92px;
+      border: 0;
+      border-radius: var(--radius);
+      color: white;
+      font-weight: 800;
+      font-size: 1.05rem;
+      letter-spacing: -.02em;
+      cursor: pointer;
+      box-shadow: 0 12px 30px rgba(0,0,0,.22);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 5px;
+    }
+
+    .big-btn small {
+      font-weight: 600;
+      opacity: .85;
+      font-size: .78rem;
+    }
+
+    .big-btn:disabled {
+      opacity: .38;
+      cursor: not-allowed;
+      filter: grayscale(.3);
+    }
+
+    .clock-in { background: linear-gradient(135deg, #16a34a, #22c55e); }
+    .lunch-out { background: linear-gradient(135deg, #d97706, #f59e0b); }
+    .lunch-in { background: linear-gradient(135deg, #0284c7, #38bdf8); }
+    .clock-out { background: linear-gradient(135deg, #dc2626, #ef4444); }
+
+    .panel {
+      background: rgba(255,255,255,.08);
+      border: 1px solid rgba(255,255,255,.12);
+      border-radius: var(--radius);
+      padding: 16px;
+      box-shadow: var(--shadow);
+      margin-bottom: 16px;
+    }
+
+    .panel h2 {
+      margin: 0 0 12px;
+      font-size: 1.15rem;
+      letter-spacing: -.02em;
+    }
+
+    .fields {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+      margin-bottom: 12px;
+    }
+
+    label {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      color: var(--muted);
+      font-size: .85rem;
+    }
+
+    input[type="date"], input[type="time"], input[type="number"] {
+      width: 100%;
+      border: 1px solid rgba(255,255,255,.16);
+      border-radius: 14px;
+      padding: 12px;
+      background: #020617;
+      color: var(--text);
+      font-size: 1rem;
+    }
+
+    .summary {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+      margin-top: 12px;
+    }
+
+    .stat {
+      background: #f8fafc;
+      color: var(--ink);
+      border-radius: 18px;
+      padding: 14px;
+    }
+
+    .stat span {
+      display: block;
+      color: #64748b;
+      font-size: .82rem;
+      margin-bottom: 4px;
+    }
+
+    .stat strong {
+      font-size: 1.45rem;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .days {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    .day-row {
+      width: 100%;
+      border: 0;
+      background: var(--card);
+      color: var(--ink);
+      border-radius: 18px;
+      padding: 14px;
+      text-align: left;
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 10px;
+      cursor: pointer;
+      user-select: none;
+      touch-action: manipulation;
+    }
+
+    .day-row:active { transform: scale(.99); }
+
+    .day-title {
+      font-weight: 800;
+      margin-bottom: 3px;
+    }
+
+    .day-sub {
+      color: #64748b;
+      font-size: .88rem;
+    }
+
+    .day-hours {
+      align-self: center;
+      font-weight: 900;
+      font-size: 1.15rem;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .hint {
+      color: var(--muted);
+      font-size: .9rem;
+      line-height: 1.45;
+      margin: 10px 2px 0;
+    }
+
+    dialog {
+      width: min(92vw, 460px);
+      border: 0;
+      border-radius: 24px;
+      padding: 0;
+      box-shadow: var(--shadow);
+      background: #f8fafc;
+      color: var(--ink);
+    }
+
+    dialog::backdrop { background: rgba(0,0,0,.55); }
+
+    .modal {
+      padding: 20px;
+    }
+
+    .modal h3 {
+      margin: 0 0 10px;
+      font-size: 1.25rem;
+    }
+
+    .modal p {
+      margin: 7px 0;
+      color: #475569;
+      line-height: 1.45;
+    }
+
+    .modal .modal-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+      margin: 14px 0;
+    }
+
+    .modal label { color: #475569; }
+    .modal input { background: white; color: var(--ink); border-color: #cbd5e1; }
+
+    .modal-actions {
+      display: flex;
+      justify-content: flex-end;
+      gap: 10px;
+      margin-top: 16px;
+      flex-wrap: wrap;
+    }
+
+    .small-btn {
+      border: 0;
+      border-radius: 14px;
+      padding: 11px 14px;
+      font-weight: 800;
+      cursor: pointer;
+      background: #e2e8f0;
+      color: #0f172a;
+    }
+
+    .small-btn.primary { background: #0f172a; color: white; }
+    .small-btn.danger { background: #fee2e2; color: #991b1b; }
+
+    .toast {
+      position: fixed;
+      left: 50%;
+      bottom: calc(18px + env(safe-area-inset-bottom));
+      transform: translateX(-50%) translateY(120px);
+      background: #020617;
+      color: white;
+      border: 1px solid rgba(255,255,255,.14);
+      border-radius: 999px;
+      padding: 12px 16px;
+      box-shadow: var(--shadow);
+      transition: transform .22s ease;
+      z-index: 50;
+      max-width: min(92vw, 520px);
+      text-align: center;
+    }
+
+    .toast.show { transform: translateX(-50%) translateY(0); }
+
+    @media (max-width: 390px) {
+      .actions { grid-template-columns: 1fr; }
+      .fields, .summary, .modal .modal-grid { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <main class="app">
+    <header>
+      <div class="brand">
+        <h1>Simple Time Clock</h1>
+        <span id="screenLabel">Home</span>
+      </div>
+      <div class="menu-wrap">
+        <button class="icon-btn" id="menuBtn" aria-label="Open menu">☰</button>
+        <nav class="menu" id="menu" aria-label="Main menu">
+          <button data-screen="home">Home</button>
+          <button data-screen="reports">Hours by Date Range</button>
+          <button id="exportBtn">Export Data</button>
+          <button id="clearBtn">Clear All Data</button>
+        </nav>
+      </div>
+    </header>
+
+    <section class="screen active" id="homeScreen">
+      <div class="clock-card">
+        <div class="date" id="todayText">—</div>
+        <div class="time" id="timeText">--:--</div>
+        <div class="status"><span class="dot" id="statusDot"></span><span id="statusText">Ready</span></div>
+      </div>
+
+      <div class="actions">
+        <button class="big-btn clock-in" id="clockInBtn">Clock In<small id="clockInSmall">Start work</small></button>
+        <button class="big-btn lunch-out" id="lunchOutBtn">Go to Lunch<small id="lunchOutSmall">Pause shift</small></button>
+        <button class="big-btn lunch-in" id="lunchInBtn">Back from Lunch<small id="lunchInSmall">Resume shift</small></button>
+        <button class="big-btn clock-out" id="clockOutBtn">Clock Out<small id="clockOutSmall">End work</small></button>
+      </div>
+
+      <p class="hint">Entries are saved on this device only. The app works best when opened from the same browser/profile each time.</p>
+    </section>
+
+    <section class="screen" id="reportsScreen">
+      <div class="panel">
+        <h2>Hours by Date Range</h2>
+        <div class="fields">
+          <label>Start date<input type="date" id="startDate" /></label>
+          <label>End date<input type="date" id="endDate" /></label>
+        </div>
+        <div class="summary">
+          <div class="stat"><span>Total hours</span><strong id="rangeTotal">0.00</strong></div>
+          <div class="stat"><span>Days shown</span><strong id="daysShown">0</strong></div>
+        </div>
+        <p class="hint">Tap a day to view its punches. Long-press a day to edit its logged hours.</p>
+      </div>
+
+      <div class="days" id="daysList"></div>
+    </section>
+  </main>
+
+  <dialog id="detailDialog">
+    <div class="modal">
+      <h3 id="detailTitle">Day Details</h3>
+      <div id="detailBody"></div>
+      <div class="modal-actions">
+        <button class="small-btn" id="detailEditBtn">Edit Hours</button>
+        <button class="small-btn primary" id="detailCloseBtn">Close</button>
+      </div>
+    </div>
+  </dialog>
+
+  <dialog id="editDialog">
+    <form method="dialog" class="modal" id="editForm">
+      <h3 id="editTitle">Edit Day</h3>
+      <p>Manual hours override the calculated punch total for this day. Leave blank to use punch times again.</p>
+      <div class="modal-grid">
+        <label>Manual hours<input type="number" id="manualHours" min="0" max="24" step="0.01" placeholder="Example: 8.50" /></label>
+        <label>Date<input type="date" id="editDate" disabled /></label>
+      </div>
+      <div class="modal-actions">
+        <button class="small-btn danger" type="button" id="deleteDayBtn">Delete Day</button>
+        <button class="small-btn" value="cancel">Cancel</button>
+        <button class="small-btn primary" value="save">Save</button>
+      </div>
+    </form>
+  </dialog>
+
+  <div class="toast" id="toast"></div>
+
+  <script>
+    const STORAGE_KEY = "simpleTimeClock.v1";
+    const LONG_PRESS_MS = 650;
+
+    const $ = (id) => document.getElementById(id);
+    const fmtDateKey = (date = new Date()) => {
+      const y = date.getFullYear();
+      const m = String(date.getMonth() + 1).padStart(2, "0");
+      const d = String(date.getDate()).padStart(2, "0");
+      return `${y}-${m}-${d}`;
+    };
+
+    const fmtTime = (date = new Date()) => date.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+    const fmtLongDate = (date = new Date()) => date.toLocaleDateString([], { weekday: "long", month: "long", day: "numeric", year: "numeric" });
+    const parseLocalDate = (key) => {
+      const [y, m, d] = key.split("-").map(Number);
+      return new Date(y, m - 1, d);
+    };
+
+    const defaultDay = () => ({
+      clockIn: null,
+      lunchOut: null,
+      lunchIn: null,
+      clockOut: null,
+      manualHours: null,
+      updatedAt: new Date().toISOString()
+    });
+
+    let state = loadState();
+    let activeDetailDate = null;
+
+    function loadState() {
+      try {
+        const raw = localStorage.getItem(STORAGE_KEY);
+        return raw ? JSON.parse(raw) : { days: {} };
+      } catch {
+        return { days: {} };
+      }
+    }
+
+    function saveState() {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+    }
+
+    function getDay(key = fmtDateKey()) {
+      if (!state.days[key]) state.days[key] = defaultDay();
+      return state.days[key];
+    }
+
+    function setPunch(field) {
+      const key = fmtDateKey();
+      const day = getDay(key);
+      day[field] = new Date().toISOString();
+      day.updatedAt = new Date().toISOString();
+      day.manualHours = null;
+      saveState();
+      renderAll();
+      toast(`${labelFor(field)} saved at ${fmtTime(new Date(day[field]))}`);
+    }
+
+    function labelFor(field) {
+      return {
+        clockIn: "Clock in",
+        lunchOut: "Lunch start",
+        lunchIn: "Lunch end",
+        clockOut: "Clock out"
+      }[field] || field;
+    }
+
+    function getStatus(day) {
+      if (!day.clockIn) return { text: "Ready to clock in", cls: "out" };
+      if (day.clockIn && !day.lunchOut && !day.clockOut) return { text: "Clocked in", cls: "in" };
+      if (day.lunchOut && !day.lunchIn && !day.clockOut) return { text: "On lunch", cls: "lunch" };
+      if (day.lunchIn && !day.clockOut) return { text: "Back from lunch", cls: "in" };
+      return { text: "Clocked out", cls: "out" };
+    }
+
+    function elapsedHours(startIso, endIso) {
+      if (!startIso || !endIso) return 0;
+      const ms = new Date(endIso) - new Date(startIso);
+      return Math.max(0, ms / 36e5);
+    }
+
+    function calculatedHours(day) {
+      if (typeof day.manualHours === "number" && !Number.isNaN(day.manualHours)) return day.manualHours;
+      const now = new Date().toISOString();
+      const end = day.clockOut || now;
+      let hours = elapsedHours(day.clockIn, end);
+      if (day.lunchOut) {
+        const lunchEnd = day.lunchIn || day.clockOut || now;
+        hours -= elapsedHours(day.lunchOut, lunchEnd);
+      }
+      return Math.max(0, hours);
+    }
+
+    function canPunch(day, field) {
+      if (field === "clockIn") return !day.clockIn;
+      if (field === "lunchOut") return day.clockIn && !day.lunchOut && !day.clockOut;
+      if (field === "lunchIn") return day.lunchOut && !day.lunchIn && !day.clockOut;
+      if (field === "clockOut") return day.clockIn && !day.clockOut;
+      return false;
+    }
+
+    function renderClock() {
+      const now = new Date();
+      $("todayText").textContent = fmtLongDate(now);
+      $("timeText").textContent = now.toLocaleTimeString([], { hour: "numeric", minute: "2-digit", second: "2-digit" });
+
+      const day = getDay(fmtDateKey(now));
+      const status = getStatus(day);
+      $("statusText").textContent = `${status.text} • ${calculatedHours(day).toFixed(2)} hrs today`;
+      $("statusDot").className = `dot ${status.cls}`;
+
+      $("clockInBtn").disabled = !canPunch(day, "clockIn");
+      $("lunchOutBtn").disabled = !canPunch(day, "lunchOut");
+      $("lunchInBtn").disabled = !canPunch(day, "lunchIn");
+      $("clockOutBtn").disabled = !canPunch(day, "clockOut");
+
+      $("clockInSmall").textContent = day.clockIn ? fmtTime(new Date(day.clockIn)) : "Start work";
+      $("lunchOutSmall").textContent = day.lunchOut ? fmtTime(new Date(day.lunchOut)) : "Pause shift";
+      $("lunchInSmall").textContent = day.lunchIn ? fmtTime(new Date(day.lunchIn)) : "Resume shift";
+      $("clockOutSmall").textContent = day.clockOut ? fmtTime(new Date(day.clockOut)) : "End work";
+    }
+
+    function dateKeysInRange(startKey, endKey) {
+      const keys = [];
+      let d = parseLocalDate(startKey);
+      const end = parseLocalDate(endKey);
+      while (d <= end) {
+        keys.push(fmtDateKey(d));
+        d.setDate(d.getDate() + 1);
+      }
+      return keys;
+    }
+
+    function renderReports() {
+      const startKey = $("startDate").value;
+      const endKey = $("endDate").value;
+      const list = $("daysList");
+      list.innerHTML = "";
+
+      if (!startKey || !endKey || startKey > endKey) {
+        $("rangeTotal").textContent = "0.00";
+        $("daysShown").textContent = "0";
+        list.innerHTML = `<div class="panel">Choose a valid date range.</div>`;
+        return;
+      }
+
+      const keys = dateKeysInRange(startKey, endKey);
+      let total = 0;
+      let shown = 0;
+
+      keys.forEach((key) => {
+        const day = state.days[key] || defaultDay();
+        const hours = calculatedHours(day);
+        const hasAnyData = state.days[key] && (day.clockIn || day.lunchOut || day.lunchIn || day.clockOut || day.manualHours !== null);
+        if (!hasAnyData && hours === 0) return;
+
+        total += hours;
+        shown++;
+
+        const row = document.createElement("button");
+        row.className = "day-row";
+        row.type = "button";
+        row.dataset.date = key;
+        row.innerHTML = `
+          <div>
+            <div class="day-title">${parseLocalDate(key).toLocaleDateString([], { weekday: "short", month: "short", day: "numeric", year: "numeric" })}</div>
+            <div class="day-sub">${day.manualHours !== null ? "Manual total" : summarizePunches(day)}</div>
+          </div>
+          <div class="day-hours">${hours.toFixed(2)}h</div>
+        `;
+        addPressHandlers(row, key);
+        list.appendChild(row);
+      });
+
+      $("rangeTotal").textContent = total.toFixed(2);
+      $("daysShown").textContent = String(shown);
+      if (!shown) list.innerHTML = `<div class="panel">No logged hours in this range.</div>`;
+    }
+
+    function summarizePunches(day) {
+      if (!day.clockIn) return "No clock-in recorded";
+      const start = fmtTime(new Date(day.clockIn));
+      const end = day.clockOut ? fmtTime(new Date(day.clockOut)) : "not clocked out";
+      return `${start} → ${end}`;
+    }
+
+    function addPressHandlers(el, key) {
+      let timer = null;
+      let longPressed = false;
+
+      const start = () => {
+        longPressed = false;
+        timer = setTimeout(() => {
+          longPressed = true;
+          openEdit(key);
+        }, LONG_PRESS_MS);
+      };
+
+      const cancel = () => {
+        if (timer) clearTimeout(timer);
+        timer = null;
+      };
+
+      el.addEventListener("pointerdown", start);
+      el.addEventListener("pointerup", () => {
+        cancel();
+        if (!longPressed) openDetails(key);
+      });
+      el.addEventListener("pointerleave", cancel);
+      el.addEventListener("pointercancel", cancel);
+      el.addEventListener("contextmenu", (event) => event.preventDefault());
+    }
+
+    function openDetails(key) {
+      activeDetailDate = key;
+      const day = state.days[key] || defaultDay();
+      $("detailTitle").textContent = parseLocalDate(key).toLocaleDateString([], { weekday: "long", month: "long", day: "numeric", year: "numeric" });
+
+      const rows = ["clockIn", "lunchOut", "lunchIn", "clockOut"].map(field => {
+        const value = day[field] ? fmtTime(new Date(day[field])) : "—";
+        return `<p><strong>${labelFor(field)}:</strong> ${value}</p>`;
+      }).join("");
+
+      $("detailBody").innerHTML = `
+        ${rows}
+        <p><strong>Total:</strong> ${calculatedHours(day).toFixed(2)} hours</p>
+        ${day.manualHours !== null ? `<p><strong>Note:</strong> This day is using a manual hours override.</p>` : ""}
+      `;
+      $("detailDialog").showModal();
+    }
+
+    function openEdit(key) {
+      activeDetailDate = key;
+      const day = state.days[key] || defaultDay();
+      $("editTitle").textContent = `Edit ${parseLocalDate(key).toLocaleDateString([], { month: "short", day: "numeric", year: "numeric" })}`;
+      $("editDate").value = key;
+      $("manualHours").value = day.manualHours === null ? "" : day.manualHours;
+      $("editDialog").showModal();
+    }
+
+    function switchScreen(screen) {
+      $("homeScreen").classList.toggle("active", screen === "home");
+      $("reportsScreen").classList.toggle("active", screen === "reports");
+      $("screenLabel").textContent = screen === "home" ? "Home" : "Hours by Date Range";
+      $("menu").classList.remove("open");
+      if (screen === "reports") renderReports();
+    }
+
+    function initDateRange() {
+      const today = fmtDateKey();
+      const weekAgo = new Date();
+      weekAgo.setDate(weekAgo.getDate() - 6);
+      $("startDate").value = fmtDateKey(weekAgo);
+      $("endDate").value = today;
+    }
+
+    function exportData() {
+      const blob = new Blob([JSON.stringify(state, null, 2)], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `time-clock-export-${fmtDateKey()}.json`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+      $("menu").classList.remove("open");
+    }
+
+    let toastTimer;
+    function toast(message) {
+      const el = $("toast");
+      el.textContent = message;
+      el.classList.add("show");
+      clearTimeout(toastTimer);
+      toastTimer = setTimeout(() => el.classList.remove("show"), 2200);
+    }
+
+    function renderAll() {
+      renderClock();
+      if ($("reportsScreen").classList.contains("active")) renderReports();
+    }
+
+    $("menuBtn").addEventListener("click", () => $("menu").classList.toggle("open"));
+    document.addEventListener("click", (event) => {
+      if (!event.target.closest(".menu-wrap")) $("menu").classList.remove("open");
+    });
+
+    document.querySelectorAll(".menu [data-screen]").forEach(btn => {
+      btn.addEventListener("click", () => switchScreen(btn.dataset.screen));
+    });
+
+    $("clockInBtn").addEventListener("click", () => setPunch("clockIn"));
+    $("lunchOutBtn").addEventListener("click", () => setPunch("lunchOut"));
+    $("lunchInBtn").addEventListener("click", () => setPunch("lunchIn"));
+    $("clockOutBtn").addEventListener("click", () => setPunch("clockOut"));
+
+    $("startDate").addEventListener("change", renderReports);
+    $("endDate").addEventListener("change", renderReports);
+
+    $("detailCloseBtn").addEventListener("click", () => $("detailDialog").close());
+    $("detailEditBtn").addEventListener("click", () => {
+      $("detailDialog").close();
+      if (activeDetailDate) openEdit(activeDetailDate);
+    });
+
+    $("editForm").addEventListener("close", () => {});
+    $("editForm").addEventListener("submit", (event) => {
+      event.preventDefault();
+      const submitter = event.submitter?.value;
+      if (submitter !== "save" || !activeDetailDate) {
+        $("editDialog").close();
+        return;
+      }
+      const val = $("manualHours").value.trim();
+      const day = getDay(activeDetailDate);
+      day.manualHours = val === "" ? null : Math.max(0, Math.min(24, Number(val)));
+      day.updatedAt = new Date().toISOString();
+      saveState();
+      $("editDialog").close();
+      renderAll();
+      toast("Day updated");
+    });
+
+    $("deleteDayBtn").addEventListener("click", () => {
+      if (!activeDetailDate) return;
+      const ok = confirm("Delete all punches and manual hours for this day?");
+      if (!ok) return;
+      delete state.days[activeDetailDate];
+      saveState();
+      $("editDialog").close();
+      renderAll();
+      toast("Day deleted");
+    });
+
+    $("exportBtn").addEventListener("click", exportData);
+    $("clearBtn").addEventListener("click", () => {
+      const ok = confirm("Clear all saved time clock data on this device?");
+      if (!ok) return;
+      state = { days: {} };
+      saveState();
+      renderAll();
+      $("menu").classList.remove("open");
+      toast("All data cleared");
+    });
+
+    initDateRange();
+    renderAll();
+    setInterval(renderClock, 1000);
+  </script>
+</body>
+</html>
