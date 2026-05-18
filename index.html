@@ -488,7 +488,8 @@
   <div class="toast" id="toast"></div>
 
   <script>
-    const STORAGE_KEY = "simpleTimeClock.v1";
+    const STORAGE_KEY = "simpleTimeClock.v2";
+    const LEGACY_STORAGE_KEY = "simpleTimeClock.v1";
     const LONG_PRESS_MS = 650;
 
     const $ = (id) => document.getElementById(id);
@@ -507,12 +508,15 @@
     };
 
     const defaultDay = () => ({
-      clockIn: null,
-      lunchOut: null,
-      lunchIn: null,
-      clockOut: null,
+      sessions: [],
       manualHours: null,
       updatedAt: new Date().toISOString()
+    });
+
+    const newSession = () => ({
+      clockIn: new Date().toISOString(),
+      breaks: [],
+      clockOut: null
     });
 
     let state = loadState();
@@ -520,11 +524,67 @@
 
     function loadState() {
       try {
-        const raw = localStorage.getItem(STORAGE_KEY);
-        return raw ? JSON.parse(raw) : { days: {} };
+        const current = localStorage.getItem(STORAGE_KEY);
+        if (current) return normalizeState(JSON.parse(current));
+
+        const legacy = localStorage.getItem(LEGACY_STORAGE_KEY);
+        if (legacy) {
+          const migrated = normalizeState(JSON.parse(legacy));
+          localStorage.setItem(STORAGE_KEY, JSON.stringify(migrated));
+          return migrated;
+        }
+
+        return { days: {} };
       } catch {
         return { days: {} };
       }
+    }
+
+    function normalizeState(input) {
+      const output = { days: {} };
+      const days = input?.days || {};
+
+      Object.entries(days).forEach(([key, day]) => {
+        if (!day) return;
+
+        if (Array.isArray(day.sessions)) {
+          output.days[key] = {
+            sessions: day.sessions.map(session => ({
+              clockIn: session.clockIn || null,
+              breaks: Array.isArray(session.breaks)
+                ? session.breaks.map(br => ({ out: br.out || br.lunchOut || null, in: br.in || br.lunchIn || null }))
+                : legacyBreaksFromSession(session),
+              clockOut: session.clockOut || null
+            })).filter(session => session.clockIn || session.clockOut || session.breaks.length),
+            manualHours: typeof day.manualHours === "number" ? day.manualHours : null,
+            updatedAt: day.updatedAt || new Date().toISOString()
+          };
+          return;
+        }
+
+        const legacySession = {
+          clockIn: day.clockIn || null,
+          breaks: [],
+          clockOut: day.clockOut || null
+        };
+
+        if (day.lunchOut || day.lunchIn) {
+          legacySession.breaks.push({ out: day.lunchOut || null, in: day.lunchIn || null });
+        }
+
+        output.days[key] = {
+          sessions: legacySession.clockIn || legacySession.clockOut || legacySession.breaks.length ? [legacySession] : [],
+          manualHours: typeof day.manualHours === "number" ? day.manualHours : null,
+          updatedAt: day.updatedAt || new Date().toISOString()
+        };
+      });
+
+      return output;
+    }
+
+    function legacyBreaksFromSession(session) {
+      if (session.lunchOut || session.lunchIn) return [{ out: session.lunchOut || null, in: session.lunchIn || null }];
+      return [];
     }
 
     function saveState() {
@@ -533,18 +593,58 @@
 
     function getDay(key = fmtDateKey()) {
       if (!state.days[key]) state.days[key] = defaultDay();
+      if (!Array.isArray(state.days[key].sessions)) state.days[key] = normalizeState({ days: { [key]: state.days[key] } }).days[key];
       return state.days[key];
     }
 
-    function setPunch(field) {
+    function activeSession(day) {
+      return [...day.sessions].reverse().find(session => session.clockIn && !session.clockOut) || null;
+    }
+
+    function activeBreak(session) {
+      return session?.breaks?.find(br => br.out && !br.in) || null;
+    }
+
+    function setPunch(action) {
       const key = fmtDateKey();
       const day = getDay(key);
-      day[field] = new Date().toISOString();
-      day.updatedAt = new Date().toISOString();
+      const now = new Date().toISOString();
+      let message = "Saved";
+
+      if (action === "clockIn") {
+        day.sessions.push(newSession());
+        message = `Clock in saved at ${fmtTime(new Date(now))}`;
+      }
+
+      if (action === "lunchOut") {
+        const session = activeSession(day);
+        if (!session || activeBreak(session)) return;
+        session.breaks.push({ out: now, in: null });
+        message = `Lunch start saved at ${fmtTime(new Date(now))}`;
+      }
+
+      if (action === "lunchIn") {
+        const session = activeSession(day);
+        const br = activeBreak(session);
+        if (!br) return;
+        br.in = now;
+        message = `Lunch end saved at ${fmtTime(new Date(now))}`;
+      }
+
+      if (action === "clockOut") {
+        const session = activeSession(day);
+        if (!session) return;
+        const br = activeBreak(session);
+        if (br) br.in = now;
+        session.clockOut = now;
+        message = `Clock out saved at ${fmtTime(new Date(now))}`;
+      }
+
+      day.updatedAt = now;
       day.manualHours = null;
       saveState();
       renderAll();
-      toast(`${labelFor(field)} saved at ${fmtTime(new Date(day[field]))}`);
+      toast(message);
     }
 
     function labelFor(field) {
@@ -557,11 +657,13 @@
     }
 
     function getStatus(day) {
-      if (!day.clockIn) return { text: "Ready to clock in", cls: "out" };
-      if (day.clockIn && !day.lunchOut && !day.clockOut) return { text: "Clocked in", cls: "in" };
-      if (day.lunchOut && !day.lunchIn && !day.clockOut) return { text: "On lunch", cls: "lunch" };
-      if (day.lunchIn && !day.clockOut) return { text: "Back from lunch", cls: "in" };
-      return { text: "Clocked out", cls: "out" };
+      const session = activeSession(day);
+      if (!session) {
+        const hasWorked = day.sessions.some(s => s.clockIn || s.clockOut);
+        return { text: hasWorked ? "Clocked out — can clock in again" : "Ready to clock in", cls: "out" };
+      }
+      if (activeBreak(session)) return { text: "On lunch", cls: "lunch" };
+      return { text: "Clocked in", cls: "in" };
     }
 
     function elapsedHours(startIso, endIso) {
@@ -570,23 +672,34 @@
       return Math.max(0, ms / 36e5);
     }
 
-    function calculatedHours(day) {
-      if (typeof day.manualHours === "number" && !Number.isNaN(day.manualHours)) return day.manualHours;
-      const now = new Date().toISOString();
-      const end = day.clockOut || now;
-      let hours = elapsedHours(day.clockIn, end);
-      if (day.lunchOut) {
-        const lunchEnd = day.lunchIn || day.clockOut || now;
-        hours -= elapsedHours(day.lunchOut, lunchEnd);
-      }
+    function sessionHours(session, nowIso = new Date().toISOString()) {
+      if (!session.clockIn) return 0;
+      const end = session.clockOut || nowIso;
+      let hours = elapsedHours(session.clockIn, end);
+
+      (session.breaks || []).forEach(br => {
+        if (!br.out) return;
+        const breakEnd = br.in || session.clockOut || nowIso;
+        hours -= elapsedHours(br.out, breakEnd);
+      });
+
       return Math.max(0, hours);
     }
 
-    function canPunch(day, field) {
-      if (field === "clockIn") return !day.clockIn;
-      if (field === "lunchOut") return day.clockIn && !day.lunchOut && !day.clockOut;
-      if (field === "lunchIn") return day.lunchOut && !day.lunchIn && !day.clockOut;
-      if (field === "clockOut") return day.clockIn && !day.clockOut;
+    function calculatedHours(day) {
+      if (typeof day.manualHours === "number" && !Number.isNaN(day.manualHours)) return day.manualHours;
+      const nowIso = new Date().toISOString();
+      return (day.sessions || []).reduce((sum, session) => sum + sessionHours(session, nowIso), 0);
+    }
+
+    function canPunch(day, action) {
+      const session = activeSession(day);
+      const br = activeBreak(session);
+
+      if (action === "clockIn") return !session;
+      if (action === "lunchOut") return !!session && !br;
+      if (action === "lunchIn") return !!br;
+      if (action === "clockOut") return !!session;
       return false;
     }
 
@@ -605,10 +718,15 @@
       $("lunchInBtn").disabled = !canPunch(day, "lunchIn");
       $("clockOutBtn").disabled = !canPunch(day, "clockOut");
 
-      $("clockInSmall").textContent = day.clockIn ? fmtTime(new Date(day.clockIn)) : "Start work";
-      $("lunchOutSmall").textContent = day.lunchOut ? fmtTime(new Date(day.lunchOut)) : "Pause shift";
-      $("lunchInSmall").textContent = day.lunchIn ? fmtTime(new Date(day.lunchIn)) : "Resume shift";
-      $("clockOutSmall").textContent = day.clockOut ? fmtTime(new Date(day.clockOut)) : "End work";
+      const session = activeSession(day);
+      const br = activeBreak(session);
+      const lastSession = day.sessions.length ? day.sessions[day.sessions.length - 1] : null;
+      const lastBreak = lastSession?.breaks?.length ? lastSession.breaks[lastSession.breaks.length - 1] : null;
+
+      $("clockInSmall").textContent = session ? "Already clocked in" : (lastSession?.clockOut ? `Last out ${fmtTime(new Date(lastSession.clockOut))}` : "Start work");
+      $("lunchOutSmall").textContent = br ? "Currently on lunch" : (lastBreak?.out ? `Last lunch ${fmtTime(new Date(lastBreak.out))}` : "Pause shift");
+      $("lunchInSmall").textContent = br ? `Started ${fmtTime(new Date(br.out))}` : (lastBreak?.in ? `Back ${fmtTime(new Date(lastBreak.in))}` : "Resume shift");
+      $("clockOutSmall").textContent = session ? `In at ${fmtTime(new Date(session.clockIn))}` : "End work";
     }
 
     function dateKeysInRange(startKey, endKey) {
@@ -620,6 +738,13 @@
         d.setDate(d.getDate() + 1);
       }
       return keys;
+    }
+
+    function dayHasAnyData(day) {
+      return !!day && (
+        day.manualHours !== null ||
+        (day.sessions || []).some(session => session.clockIn || session.clockOut || (session.breaks || []).some(br => br.out || br.in))
+      );
     }
 
     function renderReports() {
@@ -642,8 +767,7 @@
       keys.forEach((key) => {
         const day = state.days[key] || defaultDay();
         const hours = calculatedHours(day);
-        const hasAnyData = state.days[key] && (day.clockIn || day.lunchOut || day.lunchIn || day.clockOut || day.manualHours !== null);
-        if (!hasAnyData && hours === 0) return;
+        if (!dayHasAnyData(day) && hours === 0) return;
 
         total += hours;
         shown++;
@@ -669,10 +793,12 @@
     }
 
     function summarizePunches(day) {
-      if (!day.clockIn) return "No clock-in recorded";
-      const start = fmtTime(new Date(day.clockIn));
-      const end = day.clockOut ? fmtTime(new Date(day.clockOut)) : "not clocked out";
-      return `${start} → ${end}`;
+      const sessions = day.sessions || [];
+      if (!sessions.length) return "No clock-in recorded";
+      const complete = sessions.filter(s => s.clockIn && s.clockOut).length;
+      const active = activeSession(day) ? 1 : 0;
+      const breakCount = sessions.reduce((sum, s) => sum + (s.breaks || []).length, 0);
+      return `${sessions.length} shift${sessions.length === 1 ? "" : "s"} • ${complete} complete • ${active ? "active now" : `${breakCount} lunch/break${breakCount === 1 ? "" : "s"}`}`;
     }
 
     function addPressHandlers(el, key) {
@@ -707,14 +833,27 @@
       const day = state.days[key] || defaultDay();
       $("detailTitle").textContent = parseLocalDate(key).toLocaleDateString([], { weekday: "long", month: "long", day: "numeric", year: "numeric" });
 
-      const rows = ["clockIn", "lunchOut", "lunchIn", "clockOut"].map(field => {
-        const value = day[field] ? fmtTime(new Date(day[field])) : "—";
-        return `<p><strong>${labelFor(field)}:</strong> ${value}</p>`;
-      }).join("");
+      const sessionsHtml = (day.sessions || []).length
+        ? day.sessions.map((session, index) => {
+            const breaks = (session.breaks || []).length
+              ? (session.breaks || []).map((br, brIndex) => `<p><strong>Lunch/Break ${brIndex + 1}:</strong> ${br.out ? fmtTime(new Date(br.out)) : "—"} → ${br.in ? fmtTime(new Date(br.in)) : "—"}</p>`).join("")
+              : `<p><strong>Lunch/Break:</strong> none</p>`;
+
+            return `
+              <div style="margin: 12px 0; padding: 12px; border-radius: 16px; background: #e2e8f0;">
+                <p><strong>Shift ${index + 1}</strong></p>
+                <p><strong>Clock in:</strong> ${session.clockIn ? fmtTime(new Date(session.clockIn)) : "—"}</p>
+                ${breaks}
+                <p><strong>Clock out:</strong> ${session.clockOut ? fmtTime(new Date(session.clockOut)) : "—"}</p>
+                <p><strong>Shift total:</strong> ${sessionHours(session).toFixed(2)} hours</p>
+              </div>
+            `;
+          }).join("")
+        : `<p>No punches recorded for this day.</p>`;
 
       $("detailBody").innerHTML = `
-        ${rows}
-        <p><strong>Total:</strong> ${calculatedHours(day).toFixed(2)} hours</p>
+        ${sessionsHtml}
+        <p><strong>Day total:</strong> ${calculatedHours(day).toFixed(2)} hours</p>
         ${day.manualHours !== null ? `<p><strong>Note:</strong> This day is using a manual hours override.</p>` : ""}
       `;
       $("detailDialog").showModal();
@@ -795,7 +934,6 @@
       if (activeDetailDate) openEdit(activeDetailDate);
     });
 
-    $("editForm").addEventListener("close", () => {});
     $("editForm").addEventListener("submit", (event) => {
       event.preventDefault();
       const submitter = event.submitter?.value;
